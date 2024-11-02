@@ -1,12 +1,17 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
 
-// Replace with your think shadow details
-const char* UPDATE_TOPIC = "$aws/things/exercise_band/shadow/update";              // publish
-const char* UPDATE_DELTA_TOPIC = "$aws/things/exercise_band/shadow/update/delta";  // subscribe
+// Configuración del LCD
+LiquidCrystal_I2C lcd(0x27, 20, 4); // Cambia 0x27 si tu dirección I2C es diferente
+
+// Reemplaza con los detalles de tu shadow
+const char* UPDATE_TOPIC = "$aws/things/exercise_band/shadow/update";              // publicar
+const char* UPDATE_DELTA_TOPIC = "$aws/things/exercise_band/shadow/update/delta";  // suscribirse
 
 WiFiClientSecure wiFiClient;
 PubSubClient client(wiFiClient);
@@ -15,30 +20,36 @@ StaticJsonDocument<JSON_OBJECT_SIZE(64)> inputDoc;
 StaticJsonDocument<JSON_OBJECT_SIZE(4)> outputDoc;
 char outputBuffer[128];
 
-byte builtInLed = 0;
+void displayPulseOnLCD(int pulse) {
+  // Mostrar el pulso en la pantalla LCD
+  lcd.clear();
+  lcd.setCursor(0, 0); // Posicionar en la primera fila
+  lcd.print("Pulso actual:");
+  lcd.setCursor(0, 1); // Posicionar en la segunda fila
+  lcd.print(pulse);
+}
 
-void reportBuiltInLed() {
-  outputDoc["state"]["reported"]["builtInLed"] = builtInLed;
+void updateShadowPulse(int pulse) {
+  outputDoc["state"]["reported"]["devices"]["thing1"]["pulse"] = pulse; // Actualiza el pulso en el shadow
   serializeJson(outputDoc, outputBuffer);
   client.publish(UPDATE_TOPIC, outputBuffer);
 }
 
-void setBuiltInLed() {
-  if (builtInLed) digitalWrite(LED_BUILTIN, HIGH);
-  else digitalWrite(LED_BUILTIN, LOW);
-  reportBuiltInLed();
-}
-
-// Callback function to handle messages received from the subscribed topic
+// Callback para manejar mensajes recibidos
 void callback(char* topic, byte* payload, unsigned int length) {
   String message;
   for (int i = 0; i < length; i++) message += String((char) payload[i]);
-  Serial.println("Message from topic " + String(topic) + ":" + message);
+  Serial.println("Mensaje desde el tema " + String(topic) + ": " + message);
+  
   DeserializationError err = deserializeJson(inputDoc, payload);
   if (!err) {
     if (String(topic) == UPDATE_DELTA_TOPIC) {
-      builtInLed = inputDoc["state"]["builtInLed"].as<int8_t>();
-      setBuiltInLed();
+      int pulse_requested = inputDoc["state"]["devices"]["thing1"]["pulse_requested"].as<int>();
+      if (pulse_requested == 1) {
+        int currentPulse = inputDoc["state"]["reported"]["devices"]["thing1"]["pulse"].as<int>();
+        displayPulseOnLCD(currentPulse);
+        updateShadowPulse(currentPulse); // Actualiza el pulso en el shadow
+      }
     }
   }
 }
@@ -46,7 +57,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 void setupWiFi() {
   delay(10);
   Serial.println();
-  Serial.print("Connecting to ");
+  Serial.print("Conectando a ");
   Serial.println(WIFI_SSID);
 
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -56,13 +67,14 @@ void setupWiFi() {
   }
   
   Serial.println();
-  Serial.print("Connected to WiFi. IP address: ");
+  Serial.print("Conectado a WiFi. Dirección IP: ");
   Serial.println(WiFi.localIP());
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_BUILTIN, OUTPUT);
+  lcd.init(); // Inicializa el LCD
+  lcd.backlight(); // Enciende la luz de fondo
   setupWiFi();
 
   wiFiClient.setCACert(AMAZON_ROOT_CA1);
@@ -73,25 +85,19 @@ void setup() {
   client.setCallback(callback);
 }
 
-
-
 void reconnect() {
-  // Loop until we're reconnected
+  // Bucle hasta que estemos reconectados
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
+    Serial.print("Intentando conexión MQTT...");
     if (client.connect(CLIENT_ID)) {
-      Serial.println("connected");
-      // Subscribe to a topic
+      Serial.println("conectado");
       client.subscribe(UPDATE_DELTA_TOPIC);
-      Serial.println("Subscribed to " + String(UPDATE_DELTA_TOPIC));
+      Serial.println("Suscrito a " + String(UPDATE_DELTA_TOPIC));
       delay(100);
-      reportBuiltInLed();
     } else {
-      Serial.print("failed, rc=");
+      Serial.print("falló, rc=");
       Serial.print(client.state());
-      Serial.println(" trying again in 5 seconds");
-      // Wait 5 seconds before retrying
+      Serial.println(" intentando de nuevo en 5 segundos");
       delay(5000);
     }
   }
