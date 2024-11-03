@@ -5,6 +5,8 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
+#include "Utilities.h"
+#include "WiFiConnection.h"
 
 // Configuración del LCD
 LiquidCrystal_I2C lcd(0x27, 20, 4); // Cambia 0x27 si tu dirección I2C es diferente
@@ -20,17 +22,42 @@ StaticJsonDocument<JSON_OBJECT_SIZE(64)> inputDoc;
 StaticJsonDocument<JSON_OBJECT_SIZE(4)> outputDoc;
 char outputBuffer[128];
 
-void displayPulseOnLCD(int pulse) {
-  // Mostrar el pulso en la pantalla LCD
+// Variables para la medición periódica
+unsigned long previousMillis = 0;
+const long interval = 1000; // 1 segundo
+
+void printLCDMessage(const char* message, unsigned int row, unsigned int col) {
   lcd.clear();
-  lcd.setCursor(0, 0); // Posicionar en la primera fila
-  lcd.print("Pulso actual:");
-  lcd.setCursor(0, 1); // Posicionar en la segunda fila
-  lcd.print(pulse);
+  lcd.setCursor(col, row); // Posicionar en la primera fila
+  lcd.print(message);
+}
+
+int readPulseSensor() {
+  // int pulse = analogRead(A0); // Asume que el XD-58C está conectado a A0
+  int pulse = random(60, 100); // Simula un valor aleatorio entre 60 y 100
+  return pulse;
+}
+
+string getMessage(unsigned int pulse) {
+  string message;
+  if (pulse < 60) {
+    message = "Pulso demasiado bajo:";
+  } else if (pulse >= 60 && pulse < 100) {
+    message = "Pulso actual:";
+  } else {
+    message = "Pulso demasiado alto:";
+  }
+  return message + to_string(pulse);
+}
+
+void displayPulseOnLCD() {
+  int pulse = readPulseSensor();
+  string message = getMessage(pulse);
+  printLCDMessage(message.c_str(), 0, 0);
 }
 
 void updateShadowPulse(int pulse) {
-  outputDoc["state"]["reported"]["devices"]["thing1"]["pulse"] = pulse; // Actualiza el pulso en el shadow
+  outputDoc["state"]["reported"]["devices"][THING_NAME]["pulse"] = pulse; // Actualiza el pulso en el shadow
   serializeJson(outputDoc, outputBuffer);
   client.publish(UPDATE_TOPIC, outputBuffer);
 }
@@ -44,38 +71,23 @@ void callback(char* topic, byte* payload, unsigned int length) {
   DeserializationError err = deserializeJson(inputDoc, payload);
   if (!err) {
     if (String(topic) == UPDATE_DELTA_TOPIC) {
-      int pulse_requested = inputDoc["state"]["devices"]["thing1"]["pulse_requested"].as<int>();
+      int pulse_requested = inputDoc["state"]["devices"][THING_NAME]["pulse_requested"].as<int>();
       if (pulse_requested == 1) {
-        int currentPulse = inputDoc["state"]["reported"]["devices"]["thing1"]["pulse"].as<int>();
-        displayPulseOnLCD(currentPulse);
+        int currentPulse = readPulseSensor();
         updateShadowPulse(currentPulse); // Actualiza el pulso en el shadow
       }
     }
   }
 }
 
-void setupWiFi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Conectando a ");
-  Serial.println(WIFI_SSID);
-
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  
-  Serial.println();
-  Serial.print("Conectado a WiFi. Dirección IP: ");
-  Serial.println(WiFi.localIP());
-}
+WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
+const string THING_NAME = "thing1";
 
 void setup() {
   Serial.begin(115200);
   lcd.init(); // Inicializa el LCD
   lcd.backlight(); // Enciende la luz de fondo
-  setupWiFi();
+  wifi.connect();
 
   wiFiClient.setCACert(AMAZON_ROOT_CA1);
   wiFiClient.setCertificate(CERTIFICATE);
@@ -103,9 +115,12 @@ void reconnect() {
   }
 }
 
+
 void loop() {
   if (!client.connected()) {
     reconnect();
   }
   client.loop();
+  Utilities::nonBlockingDelay(1000, []()
+                              { displayPulseOnLCD(); });
 }
