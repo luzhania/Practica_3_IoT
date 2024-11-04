@@ -18,13 +18,13 @@ const char *UPDATE_DELTA_TOPIC = "$aws/things/exercise_band/shadow/update/delta"
 // Variables para los umbrales y mensajes
 unsigned int min_pulse_alert;
 unsigned int max_pulse_alert;
-const char *message;
-const String THING_NAME = "thing1";
+string message;
+const String THING_NAME = "thing2";
 
 // Objetos para WiFi, MQTT y JSON
 WiFiClientSecure wiFiClient;
 PubSubClient client(wiFiClient);
-StaticJsonDocument<JSON_OBJECT_SIZE(512)> inputDoc;
+StaticJsonDocument<JSON_OBJECT_SIZE(1024)> inputDoc;
 StaticJsonDocument<JSON_OBJECT_SIZE(64)> outputDoc;
 char outputBuffer[128];
 
@@ -32,27 +32,21 @@ char outputBuffer[128];
 unsigned long previousMillis = 0;
 const long interval = 1000; // 1 segundo
 
+int currentState = -1;
+
 // Función para leer el sensor de pulso
 int readPulseSensor()
 {
-  return random(60, 100); // Simula un valor aleatorio entre 60 y 100
+  return random(60, 200); // Simula un valor aleatorio entre 60 y 100
 }
 
-int determinePulseState(int pulse)
-{
-  if (pulse < 60)
-    return 0;
-  if (pulse <= 200)
-    return 1;
-  return 2;
-}
 
 // Función para imprimir mensajes en el LCD
-void printLCDMessage(const char *message, unsigned int row, unsigned int col)
+void printLCDMessage(unsigned int pulse, unsigned int row, unsigned int col)
 {
   lcd.clear();
   lcd.setCursor(col, row);
-  lcd.print(message);
+  lcd.print(pulse);
 }
 
 // Función para actualizar el shadow con el valor de pulso
@@ -64,12 +58,21 @@ void updatePulseInShadow(int pulse)
   client.publish(UPDATE_TOPIC, outputBuffer);
 }
 
+void publishPulseRequestAttended()
+{
+  outputDoc.clear();
+  outputDoc["state"]["desired"]["devices"][THING_NAME]["pulse_requested"] = 0;
+  serializeJson(outputDoc, outputBuffer);
+  client.publish(UPDATE_TOPIC, outputBuffer);
+}
+
 // Función para manejar la solicitud de actualización del pulso
 void processPulseRequest(const JsonDocument &doc)
 {
   int pulse_requested = doc["state"]["devices"][THING_NAME]["pulse_requested"];
   if (pulse_requested == 1)
   {
+    publishPulseRequestAttended();
     int currentPulse = readPulseSensor();
     updatePulseInShadow(currentPulse);
   }
@@ -103,10 +106,18 @@ void processMaxPulseParameter(const JsonDocument &doc)
   publishMaxPulseParameter();
 }
 
+void processMessage(const JsonDocument &doc)
+{
+  // message = doc["state"]["devices"][THING_NAME]["message"] + String(readPulseSensor());
+  // lcd.clear();
+  // lcd.setCursor(0, 0);
+  // lcd.print(message.c_str());
+  ;
+}
+
 // Callback para manejar mensajes recibidos
 void callback(char *topic, byte *payload, unsigned int length)
 {
-  Serial.println("Llamada a callback");
   String message;
   for (int i = 0; i < length; i++)
     message += String((char)payload[i]);
@@ -128,6 +139,10 @@ void callback(char *topic, byte *payload, unsigned int length)
       if (inputDoc["state"]["devices"][THING_NAME]["max_pulse_alert"])
       {
         processMaxPulseParameter(inputDoc);
+      }
+      if (inputDoc["state"]["devices"][THING_NAME]["message"])
+      {
+        processMessage(inputDoc);
       }
     }
   }
@@ -155,12 +170,41 @@ void reconnect()
   }
 }
 
+int determinePulseState(int pulse)
+{
+  if (pulse < 60)
+    return 0;
+  if (pulse <= 200)
+    return 1;
+  return 2;
+}
+
+void publishState()
+{
+  outputDoc.clear();
+  outputDoc["state"]["reported"]["devices"][THING_NAME]["heart_rate_state"] = currentState;
+  serializeJson(outputDoc, outputBuffer);
+  client.publish(UPDATE_TOPIC, outputBuffer);
+}
+
+void publishStateIfChanged(int newState) {
+  if (newState != currentState) {
+    currentState = newState;
+    publishState();
+    Serial.print("Publicado nuevo estado: ");
+    Serial.println(currentState);
+  }
+}
+
+
 // Función para mostrar el pulso en el LCD
 void displayPulseOnLCD()
 {
-  int pulse = readPulseSensor();
-  String message = "Pulso: " + String(pulse);
-  printLCDMessage(message.c_str(), 0, 0);
+  unsigned int pulse = readPulseSensor();
+  int newState = determinePulseState(pulse);
+  publishStateIfChanged(newState);
+  printLCDMessage(pulse, 0, 0);
+
 }
 
 
