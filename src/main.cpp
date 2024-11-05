@@ -28,34 +28,6 @@ public:
     }
 };
 
-class HeartRateMonitor {
-private:
-    const int pulsePin = 35;
-    const int ledPin = 2;
-    const int threshold = 2500;
-    PulseSensorPlayground pulseSensor;
-
-public:
-    HeartRateMonitor() {
-        pulseSensor.analogInput(pulsePin);
-        pulseSensor.blinkOnPulse(ledPin);
-        pulseSensor.setThreshold(threshold);
-    }
-
-    void begin() {
-        if (pulseSensor.begin()) {
-            Serial.println("PulseSensor initialized.");
-        }
-    }
-
-    int readPulseSensor() {
-        if (pulseSensor.sawStartOfBeat()) {
-            return pulseSensor.getBeatsPerMinute();
-        }
-        return -1;
-    }
-};
-
 class MQTTHandler {
 private:
     WiFiClientSecure wiFiClient;
@@ -126,16 +98,16 @@ public:
 
 class PulseProcessor {
 private:
-    int currentState = -1;
+    unsigned int currentState = 0;
 
 public:
-    int determinePulseState(int pulse) {
+    unsigned int determinePulseState(unsigned int pulse) {
         if (pulse < 60) return 0;
         if (pulse <= 200) return 1;
         return 2;
     }
 
-    void publishStateIfChanged(MQTTHandler &mqttHandler, int newState) {
+    void publishStateIfChanged(MQTTHandler &mqttHandler, unsigned int newState) {
         if (newState != currentState) {
             currentState = newState;
             mqttHandler.publishState(currentState);
@@ -146,7 +118,7 @@ public:
 };
 
 LCDDisplay lcd;
-HeartRateMonitor heartRateMonitor;
+PulseSensorPlayground pulseSensor;
 MQTTHandler mqttHandler(MQTT_BROKER, MQTT_PORT);
 PulseProcessor pulseProcessor;
 WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
@@ -154,8 +126,15 @@ WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
 void setup() {
     Serial.begin(115200);
     lcd.init();
+    
+    pulseSensor.analogInput(35);
+    pulseSensor.blinkOnPulse(2);
+    pulseSensor.setThreshold(2300);
+    if (pulseSensor.begin()) {
+        Serial.println("PulseSensor initialized.");
+    }
+
     wifi.connect();
-    heartRateMonitor.begin();
 
     mqttHandler.setCertificates(AMAZON_ROOT_CA1, CERTIFICATE, PRIVATE_KEY);
     mqttHandler.connectMQTT();
@@ -168,9 +147,10 @@ void loop() {
     mqttHandler.loop();
 
     Utilities::nonBlockingDelay(200, []() {
-        int pulse = heartRateMonitor.readPulseSensor();
-        if (pulse != -1) {
-            int newState = pulseProcessor.determinePulseState(pulse);
+        if(pulseSensor.sawStartOfBeat()) {
+            unsigned int pulse = pulseSensor.getBeatsPerMinute();
+            Serial.print(pulse);
+            unsigned int newState = pulseProcessor.determinePulseState(pulse);
             pulseProcessor.publishStateIfChanged(mqttHandler, newState);
             lcd.printMessage(pulse, 0, 0);
         }
