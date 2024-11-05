@@ -7,6 +7,7 @@
 #include "Utilities.h"
 #include "config.h"
 #include "WiFiConnection.h"
+#include "PulseSensorPlayground.h"
 
 class LCDDisplay {
 private:
@@ -30,24 +31,26 @@ public:
 class HeartRateMonitor {
 private:
     const int pulsePin = 35;
-    const int threshold = 600;
-    unsigned long lastBeatTime = 0;
+    const int ledPin = 2;
+    const int threshold = 2500;
+    PulseSensorPlayground pulseSensor;
 
 public:
     HeartRateMonitor() {
-        pinMode(pulsePin, INPUT);
+        pulseSensor.analogInput(pulsePin);
+        pulseSensor.blinkOnPulse(ledPin);
+        pulseSensor.setThreshold(threshold);
+    }
+
+    void begin() {
+        if (pulseSensor.begin()) {
+            Serial.println("PulseSensor initialized.");
+        }
     }
 
     int readPulseSensor() {
-        int pulseValue = analogRead(pulsePin);
-        unsigned long currentTime = millis();
-        
-        if (pulseValue > threshold) {
-            if ((currentTime - lastBeatTime) > 300) {
-                unsigned long beatInterval = currentTime - lastBeatTime;
-                lastBeatTime = currentTime;
-                return 60000 / beatInterval;
-            }
+        if (pulseSensor.sawStartOfBeat()) {
+            return pulseSensor.getBeatsPerMinute();
         }
         return -1;
     }
@@ -152,6 +155,7 @@ void setup() {
     Serial.begin(115200);
     lcd.init();
     wifi.connect();
+    heartRateMonitor.begin();
 
     mqttHandler.setCertificates(AMAZON_ROOT_CA1, CERTIFICATE, PRIVATE_KEY);
     mqttHandler.connectMQTT();
