@@ -40,7 +40,9 @@ private:
     const char *UPDATE_DELTA_TOPIC = "$aws/things/exercise_band/shadow/update/delta";
     const String THING_NAME = "thing2";
 
-    // Función para procesar mensajes recibidos
+    unsigned int min_pulse_alert = 0;
+    unsigned int max_pulse_alert = 0;
+
     void callback(char *topic, byte *payload, unsigned int length) {
         String message;
         for (int i = 0; i < length; i++) {
@@ -48,15 +50,23 @@ private:
         }
         Serial.println("Message from topic " + String(topic) + ": " + message);
         
-        // Deserializa el JSON recibido
         StaticJsonDocument<200> inputDoc;
         DeserializationError error = deserializeJson(inputDoc, payload, length);
         if (!error) {
-            // Verifica si el mensaje recibido es una solicitud de pulso
-            if (String(topic) == UPDATE_DELTA_TOPIC && inputDoc["state"]["devices"][THING_NAME]["pulse_requested"] == 1) {
-                unsigned int pulse = pulseSensor.getBeatsPerMinute();
-                updatePulseInShadow(pulse);
-                publishPulseRequestAttended();
+            if (String(topic) == UPDATE_DELTA_TOPIC) {
+                if (inputDoc["state"]["devices"][THING_NAME]["pulse_requested"] == 1) {
+                    unsigned int pulse = pulseSensor.getBeatsPerMinute();
+                    updatePulseInShadow(pulse);
+                    publishPulseRequestAttended();
+                }
+                if (inputDoc["state"]["devices"][THING_NAME]["min_pulse_alert"] > 0) {
+                    min_pulse_alert = inputDoc["state"]["devices"][THING_NAME]["min_pulse_alert"];
+                    publishMinPulseParameter();
+                }
+                if (inputDoc["state"]["devices"][THING_NAME]["max_pulse_alert"] > 0) {
+                    max_pulse_alert = inputDoc["state"]["devices"][THING_NAME]["max_pulse_alert"];
+                    publishMaxPulseParameter();
+                }
             }
         } else {
             Serial.println("Error deserializando el mensaje JSON");
@@ -112,6 +122,20 @@ public:
         client.publish(UPDATE_TOPIC, outputBuffer);
     }
 
+    void publishMinPulseParameter() {
+        outputDoc.clear();
+        outputDoc["state"]["reported"]["devices"][THING_NAME]["min_pulse_alert"] = min_pulse_alert;
+        serializeJson(outputDoc, outputBuffer);
+        client.publish(UPDATE_TOPIC, outputBuffer);
+    }
+
+    void publishMaxPulseParameter() {
+        outputDoc.clear();
+        outputDoc["state"]["reported"]["devices"][THING_NAME]["max_pulse_alert"] = max_pulse_alert;
+        serializeJson(outputDoc, outputBuffer);
+        client.publish(UPDATE_TOPIC, outputBuffer);
+    }
+
     void publishState(int currentState) {
         outputDoc.clear();
         outputDoc["state"]["reported"]["devices"][THING_NAME]["heart_rate_state"] = currentState;
@@ -143,7 +167,6 @@ public:
 };
 
 LCDDisplay lcd;
-// PulseSensorPlayground pulseSensor;
 MQTTHandler mqttHandler(MQTT_BROKER, MQTT_PORT);
 PulseProcessor pulseProcessor;
 WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
@@ -172,7 +195,7 @@ void loop() {
     mqttHandler.loop();
 
     Utilities::nonBlockingDelay(200, []() {
-        if(pulseSensor.sawStartOfBeat()) {
+        if (pulseSensor.sawStartOfBeat()) {
             unsigned int pulse = pulseSensor.getBeatsPerMinute();
             Serial.print(pulse);
             unsigned int newState = pulseProcessor.determinePulseState(pulse);
