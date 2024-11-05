@@ -30,6 +30,7 @@ public:
     }
 };
 
+// Clase para procesar el estado del pulso
 class MQTTHandler {
 private:
     WiFiClientSecure wiFiClient;
@@ -40,8 +41,11 @@ private:
     const char *UPDATE_DELTA_TOPIC = "$aws/things/exercise_band/shadow/update/delta";
     const String THING_NAME = "thing2";
 
-    unsigned int min_pulse_alert = 0;
-    unsigned int max_pulse_alert = 0;
+    unsigned int currentState = 0;
+    unsigned int minPulseAlert = 60;
+    unsigned int maxPulseAlert = 200;
+
+   ///////////
 
     void callback(char *topic, byte *payload, unsigned int length) {
         String message;
@@ -56,16 +60,16 @@ private:
             if (String(topic) == UPDATE_DELTA_TOPIC) {
                 if (inputDoc["state"]["devices"][THING_NAME]["pulse_requested"] == 1) {
                     unsigned int pulse = pulseSensor.getBeatsPerMinute();
-                    updatePulseInShadow(pulse);
                     publishPulseRequestAttended();
+                    updatePulseInShadow(pulse);
                 }
                 if (inputDoc["state"]["devices"][THING_NAME]["min_pulse_alert"] > 0) {
-                    min_pulse_alert = inputDoc["state"]["devices"][THING_NAME]["min_pulse_alert"];
-                    publishMinPulseParameter();
+                    minPulseAlert = inputDoc["state"]["devices"][THING_NAME]["min_pulse_alert"];
+                    reportMinPulseParameter();
                 }
                 if (inputDoc["state"]["devices"][THING_NAME]["max_pulse_alert"] > 0) {
-                    max_pulse_alert = inputDoc["state"]["devices"][THING_NAME]["max_pulse_alert"];
-                    publishMaxPulseParameter();
+                    maxPulseAlert = inputDoc["state"]["devices"][THING_NAME]["max_pulse_alert"];
+                    reportMaxPulseParameter();
                 }
             }
         } else {
@@ -77,6 +81,24 @@ public:
     MQTTHandler(const char *broker, int port) : client(wiFiClient) {
         client.setServer(broker, port);
         client.setCallback([this](char *topic, byte *payload, unsigned int length) { this->callback(topic, payload, length); });
+    }
+     
+    unsigned int determinePulseState(unsigned int pulse) {
+        if (pulse < minPulseAlert) return 0;
+        if (pulse < maxPulseAlert) return 1;
+        return 2;
+    }
+
+    void publishStateIfChanged(unsigned int newState) {
+        if (newState != currentState) {
+            currentState = newState;
+            outputDoc.clear();
+            outputDoc["state"]["reported"]["devices"][THING_NAME]["heart_rate_state"] = currentState;
+            serializeJson(outputDoc, outputBuffer);
+            client.publish(UPDATE_TOPIC, outputBuffer);
+            Serial.print("Publicado nuevo estado: ");
+            Serial.println(currentState);
+        }
     }
 
     void setCertificates(const char *rootCA, const char *cert, const char *key) {
@@ -122,53 +144,23 @@ public:
         client.publish(UPDATE_TOPIC, outputBuffer);
     }
 
-    void publishMinPulseParameter() {
+    void reportMinPulseParameter() {
         outputDoc.clear();
-        outputDoc["state"]["reported"]["devices"][THING_NAME]["min_pulse_alert"] = min_pulse_alert;
+        outputDoc["state"]["reported"]["devices"][THING_NAME]["min_pulse_alert"] = minPulseAlert;
         serializeJson(outputDoc, outputBuffer);
         client.publish(UPDATE_TOPIC, outputBuffer);
     }
 
-    void publishMaxPulseParameter() {
+    void reportMaxPulseParameter() {
         outputDoc.clear();
-        outputDoc["state"]["reported"]["devices"][THING_NAME]["max_pulse_alert"] = max_pulse_alert;
+        outputDoc["state"]["reported"]["devices"][THING_NAME]["max_pulse_alert"] = maxPulseAlert;
         serializeJson(outputDoc, outputBuffer);
         client.publish(UPDATE_TOPIC, outputBuffer);
-    }
-
-    void publishState(int currentState) {
-        outputDoc.clear();
-        outputDoc["state"]["reported"]["devices"][THING_NAME]["heart_rate_state"] = currentState;
-        serializeJson(outputDoc, outputBuffer);
-        client.publish(UPDATE_TOPIC, outputBuffer);
-    }
-};
-
-// Clase para procesar el estado del pulso
-class PulseProcessor {
-private:
-    unsigned int currentState = 0;
-
-public:
-    unsigned int determinePulseState(unsigned int pulse) {
-        if (pulse < 60) return 0;
-        if (pulse <= 200) return 1;
-        return 2;
-    }
-
-    void publishStateIfChanged(MQTTHandler &mqttHandler, unsigned int newState) {
-        if (newState != currentState) {
-            currentState = newState;
-            mqttHandler.publishState(currentState);
-            Serial.print("Publicado nuevo estado: ");
-            Serial.println(currentState);
-        }
     }
 };
 
 LCDDisplay lcd;
 MQTTHandler mqttHandler(MQTT_BROKER, MQTT_PORT);
-PulseProcessor pulseProcessor;
 WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
 
 void setup() {
@@ -198,8 +190,8 @@ void loop() {
         if (pulseSensor.sawStartOfBeat()) {
             unsigned int pulse = pulseSensor.getBeatsPerMinute();
             Serial.print(pulse);
-            unsigned int newState = pulseProcessor.determinePulseState(pulse);
-            pulseProcessor.publishStateIfChanged(mqttHandler, newState);
+            unsigned int newState = mqttHandler.determinePulseState(pulse);
+            mqttHandler.publishStateIfChanged(newState);
             lcd.printMessage(pulse, 0, 0);
         }
     });
