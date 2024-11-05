@@ -9,6 +9,8 @@
 #include "WiFiConnection.h"
 #include "PulseSensorPlayground.h"
 
+PulseSensorPlayground pulseSensor;
+
 class LCDDisplay {
 private:
     LiquidCrystal_I2C lcd;
@@ -38,12 +40,27 @@ private:
     const char *UPDATE_DELTA_TOPIC = "$aws/things/exercise_band/shadow/update/delta";
     const String THING_NAME = "thing2";
 
+    // Función para procesar mensajes recibidos
     void callback(char *topic, byte *payload, unsigned int length) {
         String message;
         for (int i = 0; i < length; i++) {
             message += String((char)payload[i]);
         }
-        Serial.println("Message from topic " + String(topic) + ":" + message);
+        Serial.println("Message from topic " + String(topic) + ": " + message);
+        
+        // Deserializa el JSON recibido
+        StaticJsonDocument<200> inputDoc;
+        DeserializationError error = deserializeJson(inputDoc, payload, length);
+        if (!error) {
+            // Verifica si el mensaje recibido es una solicitud de pulso
+            if (String(topic) == UPDATE_DELTA_TOPIC && inputDoc["state"]["devices"][THING_NAME]["pulse_requested"] == 1) {
+                unsigned int pulse = pulseSensor.getBeatsPerMinute();
+                updatePulseInShadow(pulse);
+                publishPulseRequestAttended();
+            }
+        } else {
+            Serial.println("Error deserializando el mensaje JSON");
+        }
     }
 
 public:
@@ -88,6 +105,13 @@ public:
         client.publish(UPDATE_TOPIC, outputBuffer);
     }
 
+    void publishPulseRequestAttended() {
+        outputDoc.clear();
+        outputDoc["state"]["desired"]["devices"][THING_NAME]["pulse_requested"] = 0;
+        serializeJson(outputDoc, outputBuffer);
+        client.publish(UPDATE_TOPIC, outputBuffer);
+    }
+
     void publishState(int currentState) {
         outputDoc.clear();
         outputDoc["state"]["reported"]["devices"][THING_NAME]["heart_rate_state"] = currentState;
@@ -96,6 +120,7 @@ public:
     }
 };
 
+// Clase para procesar el estado del pulso
 class PulseProcessor {
 private:
     unsigned int currentState = 0;
@@ -118,7 +143,7 @@ public:
 };
 
 LCDDisplay lcd;
-PulseSensorPlayground pulseSensor;
+// PulseSensorPlayground pulseSensor;
 MQTTHandler mqttHandler(MQTT_BROKER, MQTT_PORT);
 PulseProcessor pulseProcessor;
 WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
