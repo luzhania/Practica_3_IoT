@@ -20,6 +20,7 @@ unsigned int min_pulse_alert;
 unsigned int max_pulse_alert;
 string message;
 const String THING_NAME = "thing2";
+const int pulsePin = 35;
 
 // Objetos para WiFi, MQTT y JSON
 WiFiClientSecure wiFiClient;
@@ -34,12 +35,39 @@ const long interval = 1000; // 1 segundo
 
 int currentState = -1;
 
+int threshold = 600;            // Umbral para detectar un latido (ajusta según tu sensor y pruebas)
+unsigned long lastBeatTime = 0; // Tiempo del último latido
+unsigned long currentTime = 0;  // Tiempo actual
+float bpm = 0;                  // Frecuencia cardíaca en latidos por minuto (BPM)
+unsigned long beatInterval = 0;
+
 // Función para leer el sensor de pulso
 int readPulseSensor()
 {
-  return random(60, 200); // Simula un valor aleatorio entre 60 y 100
-}
+  int pulseValue = analogRead(pulsePin);
+  Serial.print("pulse value: ");
+  Serial.println(pulseValue);
 
+  currentTime = millis();
+  if (pulseValue > threshold)
+  {
+    // Verifica que el tiempo entre picos sea suficientemente largo para evitar múltiples detecciones del mismo latido
+    if ((currentTime - lastBeatTime) > 300)
+    {                                            // 300 ms es un filtro de debouncing
+      beatInterval = currentTime - lastBeatTime; // Calcula el intervalo entre latidos
+      lastBeatTime = currentTime;                // Actualiza el tiempo del último latido
+      Serial.print("beatInterval: ");
+      Serial.println(beatInterval);
+      // Cálculo de BPM
+      bpm = 60000.0 / beatInterval; // 60000 ms / intervalo entre latidos en ms
+
+      // Imprime la frecuencia cardíaca en BPM
+      return bpm;
+    }
+    // return random(60, 200); // Simula un valor aleatorio entre 60 y 100
+  }
+  
+}
 
 // Función para imprimir mensajes en el LCD
 void printLCDMessage(unsigned int pulse, unsigned int row, unsigned int col)
@@ -187,15 +215,16 @@ void publishState()
   client.publish(UPDATE_TOPIC, outputBuffer);
 }
 
-void publishStateIfChanged(int newState) {
-  if (newState != currentState) {
+void publishStateIfChanged(int newState)
+{
+  if (newState != currentState)
+  {
     currentState = newState;
     publishState();
     Serial.print("Publicado nuevo estado: ");
     Serial.println(currentState);
   }
 }
-
 
 // Función para mostrar el pulso en el LCD
 void displayPulseOnLCD()
@@ -204,9 +233,7 @@ void displayPulseOnLCD()
   int newState = determinePulseState(pulse);
   publishStateIfChanged(newState);
   printLCDMessage(pulse, 0, 0);
-
 }
-
 
 WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
 
@@ -215,6 +242,9 @@ void setup()
   Serial.begin(115200);
   lcd.init();
   lcd.backlight();
+
+  pinMode(pulsePin, INPUT);
+
   wifi.connect();
 
   wiFiClient.setCACert(AMAZON_ROOT_CA1);
@@ -232,6 +262,6 @@ void loop()
     reconnect();
   }
   client.loop();
-  Utilities::nonBlockingDelay(1000, []()
+  Utilities::nonBlockingDelay(200, []()
                               { displayPulseOnLCD(); });
 }
