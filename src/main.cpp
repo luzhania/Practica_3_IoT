@@ -25,11 +25,13 @@ public:
         lcd.backlight();
     }
 
-    void printMessage(unsigned int pulse, unsigned int row, unsigned int col)
+    void printMessage(unsigned int pulse, unsigned int row, unsigned int col,  string message)
     {
         lcd.clear();
         lcd.setCursor(col, row);
         lcd.print(pulse);
+        lcd.setCursor(0, 1);
+        lcd.print(message.c_str());
     }
 };
 
@@ -37,7 +39,7 @@ public:
 class MQTTHandler
 {
 private:
-    const String THING_NAME = "smartband";
+    const String THING_NAME = "exerciseband";
     WiFiClientSecure wiFiClient;
     PubSubClient client;
     StaticJsonDocument<JSON_OBJECT_SIZE(64)> outputDoc;
@@ -46,6 +48,10 @@ private:
     String updateTopic = "$aws/things/" + THING_NAME + "/shadow/update";
     String updateDeltaTopic = "$aws/things/" + THING_NAME + "/shadow/update/delta";
 
+    String messageTopic = "aws/things/message";
+    const char *MESSAGE_TOPIC = messageTopic.c_str();
+
+
     const char *UPDATE_TOPIC = updateTopic.c_str();
     const char *UPDATE_DELTA_TOPIC = updateDeltaTopic.c_str();
 
@@ -53,6 +59,7 @@ private:
     unsigned int minPulseAlert = 60;
     unsigned int maxPulseAlert = 200;
 
+    string message = "";
     ///////////
 
     void callback(char *topic, byte *payload, unsigned int length)
@@ -85,6 +92,15 @@ private:
                 {
                     maxPulseAlert = inputDoc["state"]["max_pulse_alert"];
                     reportMaxPulseParameter();
+                }
+            }
+            else if (String(topic) == MESSAGE_TOPIC)
+            {
+                if (inputDoc["state"]["message"])
+                {
+                    string message = inputDoc["state"]["message"];
+                    Serial.println(message.c_str());
+                    this->message = message;
                 }
             }
         }
@@ -146,6 +162,7 @@ public:
             {
                 Serial.println("conectado");
                 client.subscribe(UPDATE_DELTA_TOPIC);
+                client.subscribe(MESSAGE_TOPIC);
             }
             else
             {
@@ -193,6 +210,11 @@ public:
         serializeJson(outputDoc, outputBuffer);
         client.publish(UPDATE_TOPIC, outputBuffer);
     }
+
+    string getMessage()
+    {
+        return message;
+    }
 };
 
 LCDDisplay lcd;
@@ -204,9 +226,9 @@ void setup()
     Serial.begin(115200);
     lcd.init();
 
-    pulseSensor.analogInput(35);
+    pulseSensor.analogInput(34);
     pulseSensor.blinkOnPulse(2);
-    pulseSensor.setThreshold(2300);
+    pulseSensor.setThreshold(2700);
     if (pulseSensor.begin())
     {
         Serial.println("PulseSensor initialized.");
@@ -233,6 +255,6 @@ void loop()
             Serial.print(pulse);
             unsigned int newState = mqttHandler.determinePulseState(pulse);
             mqttHandler.publishStateIfChanged(newState);
-            lcd.printMessage(pulse, 0, 0);
+            lcd.printMessage(pulse, 0, 0, mqttHandler.getMessage());
         } });
 }
