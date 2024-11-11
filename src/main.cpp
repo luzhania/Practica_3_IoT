@@ -93,16 +93,23 @@ private:
                     maxPulseAlert = inputDoc["state"]["max_pulse_alert"];
                     reportMaxPulseParameter();
                 }
-            }
-            else if (String(topic) == MESSAGE_TOPIC)
-            {
                 if (inputDoc["state"]["message"])
                 {
                     string message = inputDoc["state"]["message"];
                     Serial.println(message.c_str());
                     this->message = message;
+                    reportMessage(message);
                 }
             }
+            // else if (String(topic) == MESSAGE_TOPIC)
+            // {
+            //     if (inputDoc["state"]["message"])
+            //     {
+            //         string message = inputDoc["state"]["message"];
+            //         Serial.println(message.c_str());
+            //         this->message = message;
+            //     }
+            // }
         }
         else
         {
@@ -207,6 +214,14 @@ public:
     {
         outputDoc.clear();
         outputDoc["state"]["reported"]["max_pulse_alert"] = maxPulseAlert;
+        serializeJson(outputDoc, outputBuffer);
+        client.publish(UPDATE_TOPIC, outputBuffer);
+    }
+
+    void reportMessage(string message)
+    {
+        outputDoc.clear();
+        outputDoc["state"]["reported"]["message"] = message;
         serializeJson(outputDoc, outputBuffer);
         client.publish(UPDATE_TOPIC, outputBuffer);
     }
