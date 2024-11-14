@@ -236,25 +236,29 @@ void setup()
 
     wifi.connect();
 
-    mqttHandler.setCertificates(AMAZON_ROOT_CA1, CERTIFICATE, PRIVATE_KEY);
-    mqttHandler.connectMQTT();
+    // mqttHandler.setCertificates(AMAZON_ROOT_CA1, CERTIFICATE, PRIVATE_KEY);
+    // mqttHandler.connectMQTT();
 }
 
 void loop()
 {
-    if (!mqttHandler.isConnected())
-    {
-        mqttHandler.connectMQTT();
-    }
-    mqttHandler.loop();
+    // if (!mqttHandler.isConnected())
+    // {
+    //     mqttHandler.connectMQTT();
+    // }
+    // mqttHandler.loop();
 
-    Utilities::nonBlockingDelay(200, []()
-                                {
+    // Utilities::nonBlockingDelay(200, []()
+    //                             {
+        Serial.print(analogRead(34));
         if (pulseSensor.sawStartOfBeat()) {
             unsigned int pulse = pulseSensor.getBeatsPerMinute();
-            Serial.print(pulse);
-            unsigned int newState = mqttHandler.determinePulseState(pulse);
-            mqttHandler.publishStateIfChanged(newState);
-            lcd.printMessage(pulse, 0, 0, mqttHandler.getMessage());
-        } });
+            Serial.print("bpm: ");
+            Serial.println(pulse);
+            // unsigned int newState = mqttHandler.determinePulseState(pulse);
+            // mqttHandler.publishStateIfChanged(newState);
+            // lcd.printMessage(pulse, 0, 0, mqttHandler.getMessage());
+        }
+        delay(50);
+        // });
 }
