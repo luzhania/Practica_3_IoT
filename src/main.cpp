@@ -25,7 +25,7 @@ public:
         lcd.backlight();
     }
 
-    void printMessage(unsigned int pulse, unsigned int row, unsigned int col,  string message)
+    void printMessage(unsigned int pulse, unsigned int row, unsigned int col, string message)
     {
         lcd.clear();
         lcd.setCursor(col, row);
@@ -51,7 +51,6 @@ private:
     String messageTopic = "aws/things/message";
     const char *MESSAGE_TOPIC = messageTopic.c_str();
 
-
     const char *UPDATE_TOPIC = updateTopic.c_str();
     const char *UPDATE_DELTA_TOPIC = updateDeltaTopic.c_str();
 
@@ -60,7 +59,6 @@ private:
     unsigned int maxPulseAlert = 200;
 
     string message = "";
-    ///////////
 
     void callback(char *topic, byte *payload, unsigned int length)
     {
@@ -77,43 +75,39 @@ private:
         {
             if (String(topic) == UPDATE_DELTA_TOPIC)
             {
-                if (inputDoc["state"]["pulse_requested"] == 1)
-                {
-                    unsigned int pulse = pulseSensor.getBeatsPerMinute();
-                    publishPulseRequestAttended();
-                    updatePulseInShadow(pulse);
-                }
-                if (inputDoc["state"]["min_pulse_alert"] > 0)
-                {
-                    minPulseAlert = inputDoc["state"]["min_pulse_alert"];
-                    reportMinPulseParameter();
-                }
-                if (inputDoc["state"]["max_pulse_alert"] > 0)
-                {
-                    maxPulseAlert = inputDoc["state"]["max_pulse_alert"];
-                    reportMaxPulseParameter();
-                }
-                if (inputDoc["state"]["message"])
-                {
-                    string message = inputDoc["state"]["message"];
-                    Serial.println(message.c_str());
-                    this->message = message;
-                    reportMessage(message);
-                }
+                processRequest(inputDoc);
             }
-            // else if (String(topic) == MESSAGE_TOPIC)
-            // {
-            //     if (inputDoc["state"]["message"])
-            //     {
-            //         string message = inputDoc["state"]["message"];
-            //         Serial.println(message.c_str());
-            //         this->message = message;
-            //     }
-            // }
         }
         else
         {
             Serial.println("Error deserializando el mensaje JSON");
+        }
+    }
+
+    void processRequest(StaticJsonDocument<200> inputDoc)
+    {
+        if (inputDoc["state"]["pulse_requested"] == 1)
+        {
+            unsigned int pulse = pulseSensor.getBeatsPerMinute();
+            publishPulseRequestAttended();
+            updatePulseInShadow(pulse);
+        }
+        if (inputDoc["state"]["min_pulse_alert"] > 0)
+        {
+            minPulseAlert = inputDoc["state"]["min_pulse_alert"];
+            reportMinPulseParameter();
+        }
+        if (inputDoc["state"]["max_pulse_alert"] > 0)
+        {
+            maxPulseAlert = inputDoc["state"]["max_pulse_alert"];
+            reportMaxPulseParameter();
+        }
+        if (inputDoc["state"]["message"])
+        {
+            string message = inputDoc["state"]["message"];
+            Serial.println(message.c_str());
+            this->message = message;
+            reportMessage(message);
         }
     }
 
@@ -265,15 +259,16 @@ void loop()
 
     // Utilities::nonBlockingDelay(200, []()
     //                             {
-        Serial.print(analogRead(34));
-        if (pulseSensor.sawStartOfBeat()) {
-            unsigned int pulse = pulseSensor.getBeatsPerMinute();
-            Serial.print("bpm: ");
-            Serial.println(pulse);
-            // unsigned int newState = mqttHandler.determinePulseState(pulse);
-            // mqttHandler.publishStateIfChanged(newState);
-            // lcd.printMessage(pulse, 0, 0, mqttHandler.getMessage());
-        }
-        delay(50);
-        // });
+    Serial.print(analogRead(34));
+    if (pulseSensor.sawStartOfBeat())
+    {
+        unsigned int pulse = pulseSensor.getBeatsPerMinute();
+        Serial.print("bpm: ");
+        Serial.println(pulse);
+        // unsigned int newState = mqttHandler.determinePulseState(pulse);
+        // mqttHandler.publishStateIfChanged(newState);
+        // lcd.printMessage(pulse, 0, 0, mqttHandler.getMessage());
+    }
+    delay(50);
+    // });
 }
