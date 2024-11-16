@@ -113,7 +113,7 @@ public:
             outputDoc["state"]["reported"]["heart_rate_state"] = currentState;
             serializeJson(outputDoc, outputBuffer);
             client.publish(UPDATE_TOPIC, outputBuffer);
-            Serial.print("Publicado nuevo estado: ");
+            Serial.print("New state published: ");
             Serial.println(currentState);
         }
     }

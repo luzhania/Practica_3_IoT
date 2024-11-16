@@ -27,7 +27,7 @@ protected:
         }
         else
         {
-            Serial.println("Error deserializando el mensaje JSON");
+            Serial.println("Error deserializing JSON message");
         }
     }
 
