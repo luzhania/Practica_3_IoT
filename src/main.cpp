@@ -23,7 +23,7 @@ public:
         lcd.backlight();
     }
 
-    void printMessage(unsigned int pulse, unsigned int row, unsigned int col,  String message)
+    void printMessage(unsigned int pulse, unsigned int row, unsigned int col, String message)
     {
         lcd.clear();
         lcd.setCursor(col, row);
@@ -76,11 +76,6 @@ public:
         wiFiClient.setPrivateKey(key);
     }
 
-    void loop()
-    {
-        client.loop();
-    }
-
     void connectMQTT()
     {
         while (!client.connected())
@@ -99,6 +94,16 @@ public:
                 delay(5000);
             }
         }
+    }
+
+    void loop()
+    {
+        client.loop();
+    }
+
+    bool isConnected()
+    {
+        return client.connected();
     }
 };
 
@@ -134,7 +139,7 @@ class ExerciseBand : public MQTTClient
                 if (inputDoc["state"]["pulse_requested"] == 1)
                 {
                     publishPulseRequestAttended();
-                    updatePulseInShadow(pulse);
+                    updatePulseInShadow();
                 }
                 if (inputDoc["state"]["min_pulse_alert"] > 0)
                 {
@@ -155,7 +160,7 @@ class ExerciseBand : public MQTTClient
         Serial.println("Suscribed to topic: " + String(UPDATE_DELTA_TOPIC));
     }
     
-    void updatePulseInShadow(int pulse)
+    void updatePulseInShadow()
     {
         outputDoc.clear();
         outputDoc["state"]["reported"]["heart_rate"] = pulse;
@@ -217,11 +222,6 @@ class ExerciseBand : public MQTTClient
             Serial.print("Publicado nuevo estado: ");
             Serial.println(currentState);
         }
-    }
-
-    bool isConnected()
-    {
-        return client.connected();
     }
 
     String getMessage()
