@@ -9,8 +9,6 @@
 #include "WiFiConnection.h"
 #include "PulseSensorPlayground.h"
 
-PulseSensorPlayground pulseSensor;
-
 class LCDDisplay
 {
 private:
@@ -37,11 +35,11 @@ public:
 };
 
 class MQTTClient{
-protected:
+    protected:
     WiFiClientSecure wiFiClient;
     PubSubClient client;
     
-void internalCallback(char *topic, byte *payload, unsigned int length)
+void callback(char *topic, byte *payload, unsigned int length)
     {
         String message;
         for (unsigned int i = 0; i < length; i++)
@@ -61,7 +59,6 @@ void internalCallback(char *topic, byte *payload, unsigned int length)
         }
     }
 
-    // Método virtual para manejar mensajes específicos
     virtual void onMessageReceived(const String &topic, StaticJsonDocument<200> inputDoc) = 0;
     virtual void subscribeTopics() = 0;
 public:
@@ -69,7 +66,7 @@ public:
     {
         client.setServer(broker, port);
         client.setCallback([this](char *topic, byte *payload, unsigned int length)
-                           { this->internalCallback(topic, payload, length); });
+                           { this->callback(topic, payload, length); });
     }
 
     void setCertificates(const char *rootCA, const char *cert, const char *key)
@@ -77,11 +74,6 @@ public:
         wiFiClient.setCACert(rootCA);
         wiFiClient.setCertificate(cert);
         wiFiClient.setPrivateKey(key);
-    }
-
-    void publish(const char *topic, const char *message)
-    {
-        client.publish(topic, message);
     }
 
     void loop()
@@ -93,17 +85,17 @@ public:
     {
         while (!client.connected())
         {
-            Serial.print("Intentando conexión MQTT...");
+            Serial.print("Trying MQTT conection...");
             if (client.connect("CLIENT_ID"))
             {
-                Serial.println("conectado");
+                Serial.println("Conected");
                 subscribeTopics();
             }
             else
             {
-                Serial.print("falló, rc=");
+                Serial.print("error, rc=");
                 Serial.print(client.state());
-                Serial.println(" intentando de nuevo en 5 segundos");
+                Serial.println(" trying again in 5 seconds");
                 delay(5000);
             }
         }
@@ -127,13 +119,11 @@ class ExerciseBand : public MQTTClient
 
     public:
 
-    ExerciseBand(const char *broker, int port) : MQTTClient(broker, port)
-    {
-    }
+    ExerciseBand(const char *broker, int port) : MQTTClient(broker, port) {}
 
     void onMessageReceived(const String &topic, StaticJsonDocument<200> inputDoc) override
     {
-        Serial.println("Mensaje recibido en tópico: " + topic);
+        Serial.println("Message received from: " + topic);
             if (String(topic) == UPDATE_DELTA_TOPIC)
             {
                 if (inputDoc["state"]["message"])
@@ -162,12 +152,7 @@ class ExerciseBand : public MQTTClient
     void subscribeTopics() override
     {
         client.subscribe(UPDATE_DELTA_TOPIC);
-        Serial.println("Suscrito al tópico: " + String(UPDATE_DELTA_TOPIC));
-    }
-
-    bool isConnected()
-    {
-        return client.connected();
+        Serial.println("Suscribed to topic: " + String(UPDATE_DELTA_TOPIC));
     }
     
     void updatePulseInShadow(int pulse)
@@ -219,10 +204,10 @@ class ExerciseBand : public MQTTClient
         return 2;
     }
 
-    void publishStateIfChanged(unsigned int pulse)
+    void reportStateIfChanged(unsigned int pulse)
     {
         this->pulse = pulse;
-        if ( getNewState() != currentState)
+        if (getNewState() != currentState)
         {
             currentState = getNewState();
             outputDoc.clear();
@@ -234,16 +219,22 @@ class ExerciseBand : public MQTTClient
         }
     }
 
+    bool isConnected()
+    {
+        return client.connected();
+    }
+
     String getMessage()
     {
         return message;
-    }
+    }    
 };
 
 
 LCDDisplay lcd;
-ExerciseBand mqttHandler(MQTT_BROKER, MQTT_PORT);
 WiFiConnection wifi(WIFI_SSID, WIFI_PASS);
+PulseSensorPlayground pulseSensor;
+ExerciseBand exerciseBand(MQTT_BROKER, MQTT_PORT);
 
 void setup()
 {
@@ -260,25 +251,23 @@ void setup()
 
     wifi.connect();
 
-    mqttHandler.setCertificates(AMAZON_ROOT_CA1, CERTIFICATE, PRIVATE_KEY);
-    mqttHandler.connectMQTT();
+    exerciseBand.setCertificates(AMAZON_ROOT_CA1, CERTIFICATE, PRIVATE_KEY);
+    exerciseBand.connectMQTT();
 }
 
 void loop()
 {
-    if (!mqttHandler.isConnected())
+    if (!exerciseBand.isConnected())
     {
-        mqttHandler.connectMQTT();
+        exerciseBand.connectMQTT();
     }
-    mqttHandler.loop();
+    exerciseBand.loop();
 
     Utilities::nonBlockingDelay(200, []()
                                 {
         if (pulseSensor.sawStartOfBeat()) {
             unsigned int pulse = pulseSensor.getBeatsPerMinute();
-            Serial.print(pulse);
-            mqttHandler.publishStateIfChanged(pulse);
-            Serial.println("Mensaje actualizado: " + String(mqttHandler.getMessage()));
-            lcd.printMessage(pulse, 0, 0, mqttHandler.getMessage());
+            exerciseBand.reportStateIfChanged(pulse);
+            lcd.printMessage(pulse, 0, 0, exerciseBand.getMessage());
         } });
 }
